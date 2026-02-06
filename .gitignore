@@ -105,3 +105,6 @@ local_settings.yml
 local_vars.yml
 override.yml
 local.yml
+policies/app-secrets.hcl
+policies/database-admin.hcl
+policies/devx-admin.hcl

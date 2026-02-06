@@ -17,7 +17,7 @@ Modular Ansible playbooks for HashiCorp Vault: initialization, unseal/seal, audi
 ```
 ├── ansible.cfg
 ├── site.yml
-├── run-playbook.sh
+├── Makefile                        # make init, make all, make prod-all, etc.
 ├── docker-compose.yml              # Test: 3-node Vault Raft + LDAP
 ├── test-env-resources/
 │   ├── start-test-env.sh           # Start test env (creates dirs, compose up)
@@ -62,37 +62,43 @@ Vault nodes: `localhost:18200`, `localhost:18202`, `localhost:18204`.
 ### 2. Initialize and unseal
 
 ```bash
-./run-playbook.sh init    # Initialize (vault-1 only), save keys + root token, unseal
-./run-playbook.sh unseal  # Unseal all nodes (if already initialized)
+make init    # Initialize (vault-1 only), save keys + root token, unseal
+make unseal  # Unseal all nodes (if already initialized)
 ```
 
 ### 3. Configure audit and policies
 
 ```bash
-./run-playbook.sh audit
-./run-playbook.sh policies
+make audit
+make policies
 ```
 
 ### 4. Full run (test)
 
 ```bash
-./run-playbook.sh all
+make all
 ```
 
-## Run-playbook commands
+### 5. List all commands
 
-| Command        | Description                          |
-|----------------|--------------------------------------|
-| `init`         | Initialize Vault (vault-1), save keys + token, unseal |
-| `unseal`       | Unseal all nodes (uses `~/.vault_keys`) |
-| `seal`         | Seal all nodes (active via API; standbys by restart when configured) |
-| `audit`        | Configure audit logging only         |
-| `policies`     | Apply policies from `policies/`      |
-| `all`          | Full config (init, unseal, audit, policies, auth) |
+```bash
+make        # or make help
+```
 
-**Production** (use `inventories/production` and VM vars):
+## Makefile targets
 
-- `prod-init`, `prod-unseal`, `prod-seal`, `prod-audit`, `prod-policies`, `prod-all`
+| Target        | Description                          |
+|---------------|--------------------------------------|
+| `make init`   | Initialize Vault (vault-1), save keys + token, unseal |
+| `make unseal` | Unseal all nodes (uses `~/.vault_keys`) |
+| `make seal`   | Seal all nodes (active via API; standbys by restart when configured) |
+| `make audit`  | Configure audit logging only         |
+| `make policies` | Apply policies from `policies/`    |
+| `make all`    | Full config (init, unseal, audit, policies, auth) |
+
+**Production** (uses `inventories/production` and VM vars):
+
+- `make prod-init`, `make prod-unseal`, `make prod-seal`, `make prod-audit`, `make prod-policies`, `make prod-all`
 
 ## Roles
 
