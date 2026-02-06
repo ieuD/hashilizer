@@ -1,371 +1,189 @@
 # HashiCorp Vault Ansible Configuration
 
-A comprehensive, modular Ansible playbook for configuring HashiCorp Vault with support for initialization, audit logging, and policy management. Each component can be run independently or as part of a complete configuration.
+Modular Ansible playbooks for HashiCorp Vault: initialization, unseal/seal, audit logging, and policy management. Test environment uses Docker (3-node Raft); production uses virtual machines.
 
 ## Features
 
-- **Modular Design**: Each role can be executed independently
-- **Vault Initialization**: Automated initialization and unsealing
-- **Audit Logging**: Configurable audit logging to specified paths  
-- **Policy Management**: Create and manage Vault policies from files or inline definitions
-- **Test Environment**: Docker Compose setup for testing
-- **Production Ready**: Separate inventories and configurations for different environments
+- **Modular design** – Run init, unseal, seal, audit, or policies independently
+- **Vault init & unseal** – Initialize, save unseal keys and root token, auto-unseal
+- **Seal all nodes** – Seal active via API; optionally seal standbys by restart (Docker or systemd)
+- **Audit logging** – File-based audit devices, configurable paths and options
+- **Policies from folder** – Load from `policies/`: all `.hcl` files or a list of filenames
+- **Security** – Root token and unseal keys are never logged (`no_log`)
+- **Test env** – Docker Compose 3-node Raft + LDAP; **Production** – VM-based inventory
 
 ## Project Structure
 
 ```
-vault-initializer/
-├── ansible.cfg                    # Ansible configuration
-├── site.yml                       # Main playbook (all roles)
-├── docker-compose.yml             # Test env: 3-node Vault Raft + LDAP (all mounts under test-env-resources/)
-├── run-playbook.sh                # Convenient playbook runner
-├── test-env-resources/            # Test env data and config (all volume mounts live here)
-│   ├── start-test-env.sh          # Clean start script
-│   ├── fix-permissions.sh        # Fix Raft dir permissions
-│   ├── vault-config/             # Vault HCL per node
-│   ├── ldap/                     # LDAP bootstrap LDIFs
-│   └── raft-data/                # Raft data (vault-1, vault-2, vault-3; gitignored)
-├── group_vars/
+├── ansible.cfg
+├── site.yml
+├── run-playbook.sh
+├── docker-compose.yml              # Test: 3-node Vault Raft + LDAP
+├── test-env-resources/
+│   ├── start-test-env.sh           # Start test env (creates dirs, compose up)
+│   ├── fix-permissions.sh          # Raft dir permissions for bind mounts
+│   ├── vault-config/               # vault-1.hcl, vault-2.hcl, vault-3.hcl
+│   ├── ldap/                       # LDAP bootstrap
+│   └── raft-data/                  # Raft data (gitignored)
+├── group_vars/                     # all.yml, test.yml, production.yml, vault_servers.yml
 ├── inventories/
+│   ├── test                        # 3 nodes localhost:18200, 18202, 18204
+│   ├── production
+│   └── group_vars/
+│       └── test.yml                # e.g. vault_policies_use_all: true for test
 ├── playbooks/
+│   ├── init-only.yml
+│   ├── unseal-only.yml
+│   ├── seal-only.yml
+│   ├── audit-only.yml
+│   ├── policies-only.yml
+│   └── site.yml
 ├── roles/
-└── policies/
+│   ├── vault-init
+│   ├── vault-unseal
+│   ├── vault-seal
+│   ├── vault-audit
+│   ├── vault-policies
+│   └── vault-auth
+└── policies/                       # .hcl policy files (e.g. admin.hcl)
 ```
 
 ## Quick Start
 
-### 1. Set up Test Environment
+### 1. Start test environment (Docker)
 
 ```bash
-# Clean start (recommended): stops orphans, starts 3-node Vault + LDAP
 ./test-env-resources/start-test-env.sh
-
-# Or from repo root:
-docker compose up -d
+# or: docker compose up -d
 ```
 
-### 2. Run Complete Configuration
+Vault nodes: `localhost:18200`, `localhost:18202`, `localhost:18204`.
+
+### 2. Initialize and unseal
 
 ```bash
-# Configure everything (test environment)
-./run-playbook.sh all
-
-# Or use ansible-playbook directly
-ansible-playbook -i inventories/test site.yml
+./run-playbook.sh init    # Initialize (vault-1 only), save keys + root token, unseal
+./run-playbook.sh unseal  # Unseal all nodes (if already initialized)
 ```
 
-### 3. Run Individual Components
+### 3. Configure audit and policies
 
 ```bash
-# Initialize Vault only
-./run-playbook.sh init
-
-# Configure audit logging only  
 ./run-playbook.sh audit
-
-# Configure policies only
 ./run-playbook.sh policies
 ```
+
+### 4. Full run (test)
+
+```bash
+./run-playbook.sh all
+```
+
+## Run-playbook commands
+
+| Command        | Description                          |
+|----------------|--------------------------------------|
+| `init`         | Initialize Vault (vault-1), save keys + token, unseal |
+| `unseal`       | Unseal all nodes (uses `~/.vault_keys`) |
+| `seal`         | Seal all nodes (active via API; standbys by restart when configured) |
+| `audit`        | Configure audit logging only         |
+| `policies`     | Apply policies from `policies/`      |
+| `all`          | Full config (init, unseal, audit, policies, auth) |
+
+**Production** (use `inventories/production` and VM vars):
+
+- `prod-init`, `prod-unseal`, `prod-seal`, `prod-audit`, `prod-policies`, `prod-all`
 
 ## Roles
 
 ### vault-init
 
-Handles Vault initialization and unsealing.
+- Checks if Vault is initialized; initializes with configurable key shares/threshold
+- Saves unseal keys to `~/.vault_keys` and root token to `~/.vault_root_token`
+- Unseals Vault; verifies health  
+- **Variables:** `vault_key_threshold`, `vault_key_shares`, `vault_auto_unseal_on_init`, `vault_force_init`
 
-**Features:**
-- Checks if Vault is already initialized
-- Initializes Vault with configurable key shares and threshold
-- Saves unseal keys and root token securely
-- Automatically unseals Vault
-- Verifies Vault health
+### vault-unseal
 
-**Variables:**
-```yaml
-vault_key_threshold: 3          # Number of keys needed to unseal
-vault_key_shares: 5             # Total number of unseal keys
-vault_auto_unseal_on_init: true # Auto-unseal after initialization
-vault_force_init: false        # Force re-initialization
-```
+- Reads unseal keys from file or `vault_unseal_keys`; POSTs to `/v1/sys/unseal` until unsealed
+- **Variables:** `vault_unseal_keys_file`, `vault_auto_unseal`, `vault_key_threshold`
+
+### vault-seal
+
+- Seals the **active** node via API. Standby nodes cannot be sealed via API.
+- **Seal all nodes:** set `vault_seal_standbys_by_restart: true` and `vault_seal_restart_command`:
+  - **Test (Docker):** `vault_seal_restart_command: "docker restart {{ inventory_hostname }}"`
+  - **Production (VMs):** `vault_seal_restart_command: "systemctl restart vault"`
+- **Variables:** `vault_root_token_file`, `vault_seal_standbys_by_restart`, `vault_seal_restart_command`
 
 ### vault-audit
 
-Configures audit logging for Vault.
-
-**Features:**
-- Enables file-based audit logging
-- Creates audit log directories with proper permissions
-- Supports multiple audit devices
-- Configurable audit paths and options
-
-**Variables:**
-```yaml
-vault_audit_devices:
-  - device_type: "file"
-    path: "file_audit" 
-    description: "File-based audit logging"
-    options:
-      file_path: "/vault/logs/audit.log"
-      log_raw: false
-      hmac_accessor: true
-      mode: "0600"
-
-vault_audit_log_dir: "/vault/logs"
-vault_audit_remove_existing: false  # Remove existing audit devices
-vault_audit_force_enable: false     # Force enable even if exists
-```
+- Enables file-based audit devices; creates log dirs and files with correct permissions
+- **Variables:** `vault_audit_devices`, `vault_audit_log_dir`, `vault_audit_force_enable`, `vault_audit_remove_existing`
 
 ### vault-policies
 
-Manages Vault policies from files or inline definitions.
+Policies are loaded from the **policies/** folder only (no inline content in vars).
 
-**Features:**
-- Creates policies from files in `policies/` directory
-- Supports inline policy definitions
-- Validates policy syntax before applying
-- Creates default policies (admin, read-only, app-secrets, kv-reader)
-- Generates usage examples
+- **Feature flag:** `vault_policies_use_all`
+  - **`true`** – Include **all** `.hcl` files under `policies/` (e.g. admin, app-secrets, database-admin, devx-admin)
+  - **`false`** – Use **`vault_default_policies`** as a list of filenames (e.g. `["admin.hcl"]`) and load only those
+- **Variables:**
+  - `vault_policies_use_all` – boolean (default `false`)
+  - `vault_default_policies` – list of filenames, e.g. `["admin.hcl"]`
+  - `vault_policies_source_dir` – directory for `.hcl` files (default: `{{ playbook_dir }}/../policies`)
+  - `vault_policies_update_existing` – allow updating existing policies
 
-**Variables:**
-```yaml
-vault_policies_source_dir: "{{ playbook_dir }}/policies"
-vault_policies_create_default: true
-vault_policies_update_existing: false
-vault_policies_validate_syntax: true
+**Test inventory:** For `-i inventories/test`, set `vault_policies_use_all: true` in **`inventories/group_vars/test.yml`** so Ansible loads it; the role then discovers and applies all `.hcl` files in `policies/`.
 
-vault_custom_policies:
-  - name: "my-custom-policy"
-    content: |
-      path "secret/data/myapp/*" {
-        capabilities = ["create", "read", "update", "delete", "list"]
-      }
-```
+### vault-auth
+
+- Enables auth methods (e.g. userpass, approle) and optional test users
+- **Variables:** `vault_auth_methods`, `vault_test_users`
 
 ## Configuration
 
-### Global Variables (`group_vars/all.yml`)
+### Policies folder
 
-Key configuration options:
+Place `.hcl` policy files in `policies/`:
 
-```yaml
-# Vault connection
-vault_addr: "http://localhost:8200"
-vault_token: ""
-vault_skip_verify: true
+- **admin.hcl** – Full access (path `*`, auth, audit, policies)
+- **app-secrets.hcl**, **database-admin.hcl**, **devx-admin.hcl** – Optional; applied when `vault_policies_use_all: true`
 
-# Initialization
-vault_key_threshold: 3
-vault_key_shares: 5
+When `vault_policies_use_all: false`, only files listed in `vault_default_policies` (e.g. `["admin.hcl"]`) are applied.
 
-# Audit logging  
-vault_audit_enabled: true
-vault_audit_path: "/vault/logs/audit.log"
+### Environment-specific vars
 
-# Default policies
-vault_default_policies:
-  - name: "admin"
-    content: |
-      path "*" {
-        capabilities = ["create", "read", "update", "delete", "list", "sudo"]
-      }
-```
+- **group_vars/all.yml** – Defaults (e.g. `vault_policies_use_all: false`, `vault_default_policies: ["admin.hcl"]`)
+- **group_vars/test.yml** – Test overrides (Docker, ports, audit to `/tmp`, etc.)
+- **group_vars/production.yml** – Production (VMs, systemd, stricter settings)
+- **inventories/group_vars/test.yml** – Loaded when using `-i inventories/test` (e.g. `vault_policies_use_all: true` for test)
 
-### Environment-Specific Configuration
+### Seal all nodes (test vs production)
 
-Override variables in inventory files or create environment-specific variable files:
+- **Test (containers):** In `group_vars/test.yml`: `vault_seal_standbys_by_restart: true`, `vault_seal_restart_command: "docker restart {{ inventory_hostname }}"`
+- **Production (VMs):** In `group_vars/production.yml`: `vault_seal_standbys_by_restart: true`, `vault_seal_restart_command: "systemctl restart vault"`
 
-```yaml
-# inventories/production
-[vault_servers]
-vault-prod-1 ansible_host=10.0.1.10
-vault-prod-2 ansible_host=10.0.1.11
+## Security
 
-[vault_servers:vars]
-vault_addr=https://vault.company.com:8200
-vault_skip_verify=false
-vault_audit_log_dir=/var/log/vault
-```
-
-## Usage Examples
-
-### Basic Usage
-
-```bash
-# Complete setup for test environment
-./run-playbook.sh all
-
-# Production deployment
-./run-playbook.sh prod-all
-```
-
-### Individual Role Execution
-
-```bash
-# Initialize production Vault
-ansible-playbook -i inventories/production playbooks/init-only.yml
-
-# Configure audit logging with custom path
-ansible-playbook -i inventories/test playbooks/audit-only.yml \
-  -e vault_audit_path="/custom/audit/path.log"
-
-# Update policies only
-ansible-playbook -i inventories/production playbooks/policies-only.yml \
-  -e vault_policies_update_existing=true
-```
-
-### Using Tags
-
-```bash
-# Run specific components using tags
-ansible-playbook -i inventories/test site.yml --tags "init,audit"
-ansible-playbook -i inventories/test site.yml --tags "policies"
-```
-
-### Custom Policy Management
-
-```bash
-# Add custom policies directory
-ansible-playbook -i inventories/test playbooks/policies-only.yml \
-  -e vault_policies_source_dir="/path/to/custom/policies"
-
-# Skip default policies, use only custom
-ansible-playbook -i inventories/test playbooks/policies-only.yml \
-  -e vault_policies_create_default=false \
-  -e vault_custom_policies='[{"name":"my-policy","content":"path \"secret/*\" { capabilities=[\"read\"] }"}]'
-```
-
-## Security Considerations
-
-### Key Management
-
-- **Unseal Keys**: Stored in `~/.vault_keys` with 600 permissions
-- **Root Token**: Stored in `~/.vault_root_token` with 600 permissions
-- **Important**: Secure these files immediately after initialization
-
-### Production Recommendations
-
-1. **Use TLS**: Set `vault_skip_verify: false` and configure proper certificates
-2. **Secure Key Storage**: Move unseal keys to secure locations (HSM, separate systems)
-3. **Rotate Root Token**: Create new tokens and revoke the root token
-4. **Network Security**: Restrict network access to Vault servers
-5. **Audit Logs**: Monitor and rotate audit logs regularly
-
-### Policy Best Practices
-
-1. **Principle of Least Privilege**: Grant minimum required permissions
-2. **Path-based Policies**: Use specific paths rather than wildcards
-3. **Regular Review**: Audit policies regularly
-4. **Testing**: Test policies in non-production environments
-
-## Advanced Configuration
-
-### Custom Audit Devices
-
-```yaml
-vault_audit_devices:
-  - device_type: "file"
-    path: "file_audit_1"
-    options:
-      file_path: "/vault/logs/audit.log"
-  - device_type: "file"  
-    path: "file_audit_2"
-    options:
-      file_path: "/vault/logs/audit-backup.log"
-      log_raw: true
-```
-
-### Multiple Policy Sources
-
-Create policy files in the `policies/` directory:
-
-```bash
-# policies/database-policy.hcl
-path "database/creds/readonly" {
-  capabilities = ["read"]
-}
-
-# policies/app-policy.hcl  
-path "secret/data/app/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
-}
-```
-
-### Environment Variables
-
-Set environment variables for sensitive data:
-
-```bash
-export VAULT_ROOT_TOKEN="s.xxxxxxxxx"
-ansible-playbook -i inventories/production site.yml -e vault_root_token="$VAULT_ROOT_TOKEN"
-```
+- **Root token** and **unseal keys** are never printed in playbook output (`no_log` on all tasks that read, set, or send them).
+- Keys and token are written to `~/.vault_keys` and `~/.vault_root_token` with mode `0600`. Secure these files immediately after init.
+- For production: use TLS (`vault_skip_verify: false`), secure key storage, and restrict network access. See `PRODUCTION_READINESS.md` if present.
 
 ## Troubleshooting
 
-### Common Issues
+- **Connection refused** – Ensure Vault is running and the correct port (test: 18200 for vault-1).
+- **Policies not created with `vault_policies_use_all: true`** – When using `-i inventories/test`, put `vault_policies_use_all: true` in **`inventories/group_vars/test.yml`** so the test group gets the flag.
+- **Only one node sealed** – By design, the seal API only affects the active node. To seal standbys, set `vault_seal_standbys_by_restart` and `vault_seal_restart_command` as above.
+- **Permission denied on Raft dirs (macOS/Docker)** – Run `./test-env-resources/fix-permissions.sh`; chown in init containers is non-fatal.
 
-1. **Connection Refused**: Ensure Vault is running and accessible
-2. **Permission Denied** (especially in UI): Use the token in `~/.vault_root_token` for **http://localhost:8200**. When pasting, ensure no extra spaces or newlines (e.g. `cat ~/.vault_root_token | tr -d '\n'` to copy). Also ensure unseal keys and root token are available.
-3. **Policy Validation Failed**: Review policy syntax in HCL format
-4. **Audit Device Already Exists**: Set `vault_audit_force_enable: true` or `vault_audit_remove_existing: true`
+## Test environment details
 
-### Debug Mode
-
-```bash
-# Enable verbose output
-ansible-playbook -i inventories/test site.yml -vvv
-
-# Check specific role
-ansible-playbook -i inventories/test playbooks/init-only.yml --check --diff
-```
-
-### Vault Status Commands
-
-```bash
-# Check Vault status
-curl -s http://localhost:8200/v1/sys/health
-
-# List policies (requires token)
-curl -s -H "X-Vault-Token: $VAULT_ROOT_TOKEN" \
-  http://localhost:8200/v1/sys/policies/acl | jq
-
-# List audit devices
-curl -s -H "X-Vault-Token: $VAULT_ROOT_TOKEN" \
-  http://localhost:8200/v1/sys/audit | jq
-```
-
-## Test Environment
-
-The included Docker Compose setup provides:
-
-- **Vault** (`localhost:8200`): File storage, requires initialization (run `./run-playbook.sh init`)
-
-### Test Environment Commands
-
-```bash
-# Start test environment
-./setup-test-env.sh
-
-# Check services (from repo root)
-docker compose ps
-
-# View logs
-docker logs vault-1
-
-# Stop environment
-docker compose down
-
-# Clean up (Raft data remains under test-env-resources/raft-data/)
-docker compose down
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test with the provided test environment
-5. Submit a pull request
+- **Containers:** vault-1, vault-2, vault-3 (ports 18200, 18202, 18204), LDAP.
+- **Start:** `./test-env-resources/start-test-env.sh` or `docker compose up -d`
+- **Stop:** `docker compose down`
+- **Logs:** `docker compose logs -f vault-1`
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT – see LICENSE file.
