@@ -1,0 +1,3 @@
+# Policy flag for test inventory: load all .hcl from policies folder when true
+# (group_vars here are loaded when using -i inventories/test)
+vault_policies_use_all: true

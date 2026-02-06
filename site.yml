@@ -33,7 +33,7 @@
           Initialized: Yes
           Unsealed: Yes
           Audit Logging: {{ 'Enabled' if vault_audit_enabled else 'Disabled' }}
-          Policies Created: {{ vault_default_policies | length + (vault_custom_policies | default([])) | length }}
+          Policies: {{ 'all .hcl in folder' if (vault_policies_use_all | default(false)) else (vault_default_policies | default([])) | length | string + ' from list' }}
 
           Root token saved to: {{ vault_root_token_file }}
           Unseal keys saved to: {{ vault_unseal_keys_file }}

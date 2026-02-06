@@ -22,30 +22,12 @@ vault_audit_options:
   hmac_accessor: true
   mode: "0600"
 
-# Policy settings
+# Policy settings: load from policies folder
+# vault_policies_use_all: true = include all .hcl under policies/; false = use vault_default_policies as list of filenames
+vault_policies_use_all: false
 vault_policies_dir: "policies"
-vault_default_policies:
-  - name: "admin"
-    content: |
-      # Admin policy - full access
-      path "*" {
-        capabilities = ["create", "read", "update", "delete", "list", "sudo"]
-      }
-  - name: "read-only"
-    content: |
-      # Read-only policy
-      path "*" {
-        capabilities = ["read", "list"]
-      }
-  - name: "app-policy"
-    content: |
-      # Application policy
-      path "secret/data/app/*" {
-        capabilities = ["create", "read", "update", "delete", "list"]
-      }
-      path "secret/metadata/app/*" {
-        capabilities = ["list"]
-      }
+# List of .hcl filenames to load from policies folder when vault_policies_use_all is false
+vault_default_policies: ["admin.hcl"]
 
 # Authentication settings
 vault_auth_methods:

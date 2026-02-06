@@ -10,11 +10,13 @@
     src: "{{ vault_root_token_file }}"
   register: root_token_content
   delegate_to: localhost
+  no_log: true
   when: root_token_file_stat.stat.exists | default(false)
 
 - name: Set root token from file
   set_fact:
     vault_root_token: "{{ root_token_content.content | b64decode | trim }}"
+  no_log: true
   when: root_token_content is defined and root_token_content.content is defined
 
 - name: Fail when root token file missing
@@ -57,6 +59,7 @@
       X-Vault-Token: "{{ vault_root_token }}"
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
     status_code: [200, 204]
+  no_log: true
   when:
     - not (vault_seal_status.json.sealed | default(false))
     - vault_health is not defined or not ((vault_health.json | default({})).standby | default(false))
@@ -68,6 +71,19 @@
     - not (vault_seal_status.json.sealed | default(false))
     - vault_health is defined
     - (vault_health.json | default({})).standby | default(false)
+    - not (vault_seal_standbys_by_restart | default(false))
+    - not (vault_seal_restart_command | default('') | trim | length > 0)
+
+- name: Seal standby by restarting Vault process
+  shell: "{{ vault_seal_restart_command }}"
+  register: _seal_standby_restart
+  changed_when: true
+  when:
+    - not (vault_seal_status.json.sealed | default(false))
+    - vault_health is defined
+    - (vault_health.json | default({})).standby | default(false)
+    - vault_seal_standbys_by_restart | default(false)
+    - vault_seal_restart_command | default('') | trim | length > 0
 
 - name: Verify Vault is sealed (active node)
   uri:
@@ -84,9 +100,11 @@
     msg: |
       {% if vault_seal_status.json.sealed | default(false) %}
       Vault was already sealed ({{ vault_addr }}).
+      {% elif _seal_standby_restart is defined and not (_seal_standby_restart.skipped | default(false)) %}
+      Standby node ({{ vault_addr }}): sealed by restart.
       {% elif vault_health is defined and (vault_health.json | default({})).standby | default(false) %}
-      Standby node ({{ vault_addr }}): restart Vault process to seal.
+      Standby node ({{ vault_addr }}): restart Vault process to seal (or set vault_seal_standbys_by_restart and vault_seal_restart_command).
       {% else %}
       Vault sealed successfully ({{ vault_addr }}).
       {% endif %}
-  when: final_seal_status is defined or vault_seal_status.json.sealed | default(false) or (vault_health is defined and (vault_health.json | default({})).standby | default(false))
+  when: final_seal_status is defined or vault_seal_status.json.sealed | default(false) or (vault_health is defined and (vault_health.json | default({})).standby | default(false)) or (_seal_standby_restart is defined and not (_seal_standby_restart.skipped | default(false)))

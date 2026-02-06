@@ -13,6 +13,10 @@ vault_key_shares: 5 # Standard security
 vault_auto_unseal: true
 vault_force_init: false # Only init if not already done
 
+# Seal all nodes in production (VMs): active via API, standbys by restarting systemd service
+vault_seal_standbys_by_restart: true
+vault_seal_restart_command: "systemctl restart vault"
+
 # Production audit logging settings
 vault_audit_enabled: true
 vault_audit_device_type: "file"
@@ -24,37 +28,14 @@ vault_audit_options:
   hmac_accessor: true # Security best practice
   mode: "0600" # Restrictive permissions
 
-# Production policy settings
+# Production policy settings (load from policies folder)
+# Set vault_policies_use_all: true to include all .hcl in policies/; false to use vault_default_policies list
+vault_policies_use_all: false
 vault_policies_dir: "policies"
-vault_policies_create_default: true
 vault_policies_update_existing: false # Prevent accidental updates
 vault_policies_validate_syntax: true
-
-# Standard production policies
-vault_default_policies:
-  - name: "admin"
-    content: |
-      # Admin policy - full access
-      path "*" {
-        capabilities = ["create", "read", "update", "delete", "list", "sudo"]
-      }
-
-  - name: "read-only"
-    content: |
-      # Read-only policy
-      path "*" {
-        capabilities = ["read", "list"]
-      }
-
-  - name: "app-secrets"
-    content: |
-      # Application secrets policy
-      path "secret/data/app/*" {
-        capabilities = ["create", "read", "update", "delete", "list"]
-      }
-      path "secret/metadata/app/*" {
-        capabilities = ["list", "read"]
-      }
+# List of .hcl filenames to load from policies folder when vault_policies_use_all is false
+vault_default_policies: ["admin.hcl"]
 
 # Authentication methods
 vault_auth_methods:

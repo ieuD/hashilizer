@@ -15,6 +15,7 @@
     status_code: 200
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
   register: existing_auth_methods
+  no_log: true
 
 - name: Display existing auth methods
   debug:
@@ -33,6 +34,7 @@
     status_code: [200, 204, 400] # 400 if already exists
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
   loop: "{{ vault_auth_methods | dict2items }}"
+  no_log: true
   when:
     - item.value.enabled | default(false)
     - (item.value.path + '/') not in existing_auth_methods.json.keys() or vault_auth_force_enable | default(false)
@@ -50,6 +52,7 @@
     status_code: [200, 204]
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
   loop: "{{ vault_test_users | default([]) }}"
+  no_log: true
   when:
     - vault_test_users is defined
     - vault_auth_methods.userpass.enabled | default(false)
@@ -63,6 +66,7 @@
     status_code: 200
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
   register: final_auth_methods
+  no_log: true
 
 - name: Display authentication configuration summary
   debug:

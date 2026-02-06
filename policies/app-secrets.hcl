@@ -10,7 +10,7 @@ path "secret/metadata/app/*" {
   capabilities = ["read", "list", "delete"]
 }
 
-# Database credentials for application
+#Database credentials for application
 path "database/creds/app-role" {
   capabilities = ["read"]
 }

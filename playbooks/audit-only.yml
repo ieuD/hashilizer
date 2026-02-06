@@ -19,11 +19,13 @@
         src: "{{ vault_root_token_file }}"
       register: _audit_root_token_content
       delegate_to: localhost
+      no_log: true
       when: _audit_root_token_file_stat.stat.exists | default(false)
 
     - name: Set root token from file
       set_fact:
         vault_root_token: "{{ _audit_root_token_content.content | b64decode | trim }}"
+      no_log: true
       when: _audit_root_token_content is defined and _audit_root_token_content.content is defined
 
     - name: Check for root token

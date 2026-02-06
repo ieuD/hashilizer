@@ -19,11 +19,13 @@
         src: "{{ vault_root_token_file }}"
       register: _root_token_content
       delegate_to: localhost
+      no_log: true
       when: _root_token_file_stat.stat.exists | default(false)
 
     - name: Set root token from file
       set_fact:
         vault_root_token: "{{ _root_token_content.content | b64decode | trim }}"
+      no_log: true
       when: _root_token_content is defined and _root_token_content.content is defined
 
     - name: Check for root token
@@ -37,11 +39,4 @@
   post_tasks:
     - name: Display policy configuration summary
       debug:
-        msg: |
-          Vault Policy Configuration Complete!
-
-          Policies Directory: {{ vault_policies_source_dir }}
-          Default Policies: {{ vault_default_policies | map(attribute='name') | list }}
-          Custom Policies: {{ vault_custom_policies | default([]) | map(attribute='name') | list }}
-
-          Use 'vault policy list' to see all policies.
+        msg: "Vault policy configuration complete. Source: {{ vault_policies_source_dir }}. Mode: {{ 'all .hcl in folder' if (vault_policies_use_all | default(false)) else 'list: ' + (vault_default_policies | default([]) | join(', ')) }}. Run 'vault policy list' to see policies."

@@ -1,8 +1,10 @@
 ---
 # Source directory for policy .hcl files (relative to playbook_dir or absolute)
 vault_policies_source_dir: "{{ playbook_dir }}/../policies"
-# Create policies from vault_default_policies (inline)
-vault_policies_create_default: true
+# When true: include all .hcl files under policies folder. When false: use vault_default_policies as list of filenames to load from folder (e.g. ["admin.hcl"]).
+vault_policies_use_all: false
+# List of .hcl filenames to load from policies folder when vault_policies_use_all is false (looked up under vault_policies_source_dir)
+vault_default_policies: ["admin.hcl"]
 # Allow updating existing policies (when false, skip if policy already exists)
 vault_policies_update_existing: false
 # Validate policy syntax (best-effort; invalid HCL will fail on apply)

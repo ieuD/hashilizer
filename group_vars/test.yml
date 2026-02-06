@@ -13,6 +13,10 @@ vault_key_shares: 3 # Reduced for testing
 vault_auto_unseal: true
 vault_force_init: false # Don't reinit dev vault
 
+# Seal all nodes in test (Docker): active via API, standbys by restarting container
+vault_seal_standbys_by_restart: true
+vault_seal_restart_command: "docker restart {{ inventory_hostname }}"
+
 # Test audit logging settings
 vault_audit_enabled: true
 vault_audit_device_type: "file"
@@ -36,37 +40,14 @@ vault_audit_devices:
       hmac_accessor: false
       mode: "0644"
 
-# Test policy settings
+# Test policy settings (load from policies folder)
+# Set vault_policies_use_all: true to include all .hcl in policies/; false to use vault_default_policies list
+vault_policies_use_all: true
 vault_policies_dir: "policies"
-vault_policies_create_default: true
 vault_policies_update_existing: true # Allow updates in test
 vault_policies_validate_syntax: true
-
-# Test-specific policies
-vault_default_policies:
-  - name: "test-admin"
-    content: |
-      # Test admin policy - full access
-      path "*" {
-        capabilities = ["create", "read", "update", "delete", "list", "sudo"]
-      }
-
-  - name: "test-user"
-    content: |
-      # Test user policy - limited access
-      path "secret/data/test/*" {
-        capabilities = ["create", "read", "update", "delete", "list"]
-      }
-      path "secret/metadata/test/*" {
-        capabilities = ["list", "read"]
-      }
-
-  - name: "test-readonly"
-    content: |
-      # Test read-only policy
-      path "secret/data/test/*" {
-        capabilities = ["read", "list"]
-      }
+# List of .hcl filenames to load from policies folder when vault_policies_use_all is false
+# vault_default_policies: ["admin.hcl"]
 
 # Authentication methods for testing
 vault_auth_methods:
@@ -89,17 +70,17 @@ vault_secret_engines:
   database:
     enabled: false # Disabled for simple testing
 
-# Test users and roles
+# Test users (all use admin policy)
 vault_test_users:
   - username: "testuser"
     password: "testpass123"
-    policies: ["test-user"]
+    policies: ["admin"]
   - username: "admin"
     password: "admin123"
-    policies: ["test-admin"]
+    policies: ["admin"]
   - username: "readonly"
     password: "readonly123"
-    policies: ["test-readonly"]
+    policies: ["admin"]
 
 # Test secrets to create
 vault_test_secrets:
