@@ -12,21 +12,17 @@ echo "Vault Ansible Playbook Runner"
 echo "=============================="
 
 case "$1" in
-  "test-dev"|"td")
-    echo "Running Test Environment Configuration (Dev Vault - Port 8200)..."
-    ansible-playbook -i inventories/test playbooks/test-dev-vault.yml --limit vault_dev
-    ;;
-  "test-simple"|"ts")
-    echo "Running Simple Test Environment Configuration (Dev Vault - No Sudo)..."
-    ansible-playbook -i inventories/test playbooks/test-simple.yml --limit vault_dev
-    ;;
-  "test-prod"|"tp")
-    echo "Running Test Environment Configuration (Prod Vault - Port 8202)..."
-    ansible-playbook -i inventories/test playbooks/test-prod-vault.yml --limit vault_prod_test
-    ;;
   "init")
-    echo "Running Vault initialization..."
-    ansible-playbook -i inventories/test playbooks/init-only.yml
+    echo "Running Vault initialization (node 1 only)..."
+    ansible-playbook -i inventories/test playbooks/init-only.yml --limit vault-1
+    ;;
+  "unseal")
+    echo "Unsealing all Vault nodes..."
+    ansible-playbook -i inventories/test playbooks/unseal-only.yml
+    ;;
+  "seal")
+    echo "Sealing all Vault nodes..."
+    ansible-playbook -i inventories/test playbooks/seal-only.yml
     ;;
   "audit")
     echo "Running Vault audit configuration..."
@@ -59,28 +55,19 @@ case "$1" in
   *)
     echo "Usage: $0 {command}"
     echo ""
-    echo "Test Environment Commands:"
-    echo "  test-dev  (td)    - Configure dev vault (port 8200, pre-initialized)"
-    echo "  test-simple (ts)  - Simple dev vault setup (no sudo required)"
-    echo "  test-prod (tp)    - Configure prod vault (port 8202, needs init)"
-    echo ""
-    echo "Individual Component Commands:"
-    echo "  init              - Initialize Vault only"
-    echo "  audit             - Configure audit logging only"
+    echo "Test (3-node Raft cluster):"
+    echo "  init              - Initialize Vault (node 1 only)"
+    echo "  unseal             - Unseal all 3 nodes (run after init)"
+    echo "  seal               - Seal all 3 nodes"
+    echo "  audit              - Configure audit logging only"
     echo "  policies          - Configure policies only"
     echo "  all               - Run complete configuration"
     echo ""
-    echo "Production Environment Commands:"
+    echo "Production:"
     echo "  prod-init         - Initialize Vault only (production)"
     echo "  prod-audit        - Configure audit logging only (production)"
     echo "  prod-policies     - Configure policies only (production)"
     echo "  prod-all          - Run complete configuration (production)"
-    echo ""
-    echo "Examples:"
-    echo "  $0 test-simple            # Simple dev vault setup (recommended)"
-    echo "  $0 test-dev               # Full dev vault with all roles"
-    echo "  $0 test-prod              # Initialize production-like vault"
-    echo "  $0 ts                     # Short form for test-simple"
     exit 1
     ;;
 esac

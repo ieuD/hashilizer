@@ -8,9 +8,27 @@
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
   pre_tasks:
+    - name: Check if root token file exists
+      stat:
+        path: "{{ vault_root_token_file }}"
+      register: _audit_root_token_file_stat
+      delegate_to: localhost
+
+    - name: Read root token from file
+      slurp:
+        src: "{{ vault_root_token_file }}"
+      register: _audit_root_token_content
+      delegate_to: localhost
+      when: _audit_root_token_file_stat.stat.exists | default(false)
+
+    - name: Set root token from file
+      set_fact:
+        vault_root_token: "{{ _audit_root_token_content.content | b64decode | trim }}"
+      when: _audit_root_token_content is defined and _audit_root_token_content.content is defined
+
     - name: Check for root token
       fail:
-        msg: "Root token is required. Set vault_root_token variable or ensure vault-init has been run."
+        msg: "Root token is required. Set vault_root_token or ensure {{ vault_root_token_file }} exists (run init first)."
       when: vault_root_token is not defined or vault_root_token == ""
 
   roles:

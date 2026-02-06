@@ -1,50 +1,10 @@
 ---
-# defaults file for vault-policies
-
-# Policy management settings
-vault_policies_source_dir: "{{ playbook_dir }}/policies"
+# Source directory for policy .hcl files (relative to playbook_dir or absolute)
+vault_policies_source_dir: "{{ playbook_dir }}/../policies"
+# Create policies from vault_default_policies (inline)
 vault_policies_create_default: true
+# Allow updating existing policies (when false, skip if policy already exists)
 vault_policies_update_existing: false
+# Validate policy syntax (best-effort; invalid HCL will fail on apply)
 vault_policies_validate_syntax: true
-
-# Default policies to create
-vault_default_policies:
-  - name: "admin"
-    content: |
-      # Admin policy - full access
-      path "*" {
-        capabilities = ["create", "read", "update", "delete", "list", "sudo"]
-      }
-
-  - name: "read-only"
-    content: |
-      # Read-only policy for all paths
-      path "*" {
-        capabilities = ["read", "list"]
-      }
-
-  - name: "app-secrets"
-    content: |
-      # Application secrets policy
-      path "secret/data/app/*" {
-        capabilities = ["create", "read", "update", "delete", "list"]
-      }
-      path "secret/metadata/app/*" {
-        capabilities = ["list", "read"]
-      }
-
-  - name: "kv-reader"
-    content: |
-      # KV secrets reader policy
-      path "secret/data/*" {
-        capabilities = ["read"]
-      }
-      path "secret/metadata/*" {
-        capabilities = ["read", "list"]
-      }
-
-# Custom policies (loaded from files or defined inline)
-vault_custom_policies: []
-
-# Policy file extension
-vault_policy_file_extension: ".hcl"
+vault_root_token_file: "{{ ansible_facts['user_dir'] }}/.vault_root_token"

@@ -1,0 +1,92 @@
+---
+- name: Check if root token file exists
+  stat:
+    path: "{{ vault_root_token_file }}"
+  register: root_token_file_stat
+  delegate_to: localhost
+
+- name: Read root token from file
+  slurp:
+    src: "{{ vault_root_token_file }}"
+  register: root_token_content
+  delegate_to: localhost
+  when: root_token_file_stat.stat.exists | default(false)
+
+- name: Set root token from file
+  set_fact:
+    vault_root_token: "{{ root_token_content.content | b64decode | trim }}"
+  when: root_token_content is defined and root_token_content.content is defined
+
+- name: Fail when root token file missing
+  fail:
+    msg: |
+      Root token file not found: {{ vault_root_token_file }}
+      Seal requires an authenticated request. Create the file with the root token or run init first.
+  when: not (root_token_file_stat.stat.exists | default(false))
+
+- name: Check Vault seal status
+  uri:
+    url: "{{ vault_addr }}/v1/sys/seal-status"
+    method: GET
+    validate_certs: "{{ not vault_skip_verify | default(true) }}"
+  register: vault_seal_status
+
+- name: Display current seal status
+  debug:
+    msg: "Vault sealed: {{ vault_seal_status.json.sealed | default(false) }} ({{ vault_addr }})"
+
+- name: Skip seal if already sealed
+  debug:
+    msg: "Vault is already sealed, skipping"
+  when: vault_seal_status.json.sealed | default(false)
+
+- name: Check if node is standby (HA cluster)
+  uri:
+    url: "{{ vault_addr }}/v1/sys/health"
+    method: GET
+    validate_certs: "{{ not vault_skip_verify | default(true) }}"
+    status_code: [200, 429]
+  register: vault_health
+  when: not (vault_seal_status.json.sealed | default(false))
+
+- name: Seal Vault (active node only)
+  uri:
+    url: "{{ vault_addr }}/v1/sys/seal"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    validate_certs: "{{ not vault_skip_verify | default(true) }}"
+    status_code: [200, 204]
+  when:
+    - not (vault_seal_status.json.sealed | default(false))
+    - vault_health is not defined or not ((vault_health.json | default({})).standby | default(false))
+
+- name: Standby node – cannot seal via API
+  debug:
+    msg: "{{ vault_addr }} is a standby node. It cannot be sealed via API. Restart the Vault process on this host to seal it."
+  when:
+    - not (vault_seal_status.json.sealed | default(false))
+    - vault_health is defined
+    - (vault_health.json | default({})).standby | default(false)
+
+- name: Verify Vault is sealed (active node)
+  uri:
+    url: "{{ vault_addr }}/v1/sys/seal-status"
+    method: GET
+    validate_certs: "{{ not vault_skip_verify | default(true) }}"
+  register: final_seal_status
+  when:
+    - not (vault_seal_status.json.sealed | default(false))
+    - vault_health is not defined or not ((vault_health.json | default({})).standby | default(false))
+
+- name: Display seal result
+  debug:
+    msg: |
+      {% if vault_seal_status.json.sealed | default(false) %}
+      Vault was already sealed ({{ vault_addr }}).
+      {% elif vault_health is defined and (vault_health.json | default({})).standby | default(false) %}
+      Standby node ({{ vault_addr }}): restart Vault process to seal.
+      {% else %}
+      Vault sealed successfully ({{ vault_addr }}).
+      {% endif %}
+  when: final_seal_status is defined or vault_seal_status.json.sealed | default(false) or (vault_health is defined and (vault_health.json | default({})).standby | default(false))

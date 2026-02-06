@@ -1,51 +1,170 @@
-version: '3.8'
+# Test environment: 3-node Vault Raft cluster + LDAP for auth integration
+# All volume mounts live under test-env-resources/
+# Start: ./test-env-resources/start-test-env.sh   or: docker compose up -d
+# Stop:  docker compose down
+# Vault listens on 8300 inside container; host ports 18200, 18202, 18204.
+# Init containers chown Raft dirs under test-env-resources/raft-data for UID 100.
 
 services:
-  vault:
-    image: hashicorp/vault:1.15
-    container_name: vault-test
-    restart: unless-stopped
-    ports:
-      - "8200:8200"
-    environment:
-      VAULT_ADDR: http://0.0.0.0:8200
-      VAULT_LOCAL_CONFIG: |
-        {
-          "ui": true,
-          "disable_mlock": true,
-          "storage": {
-            "file": {
-              "path": "/vault/data"
-            }
-          },
-          "listener": {
-            "tcp": {
-              "address": "0.0.0.0:8200",
-              "tls_disable": true
-            }
-          },
-          "api_addr": "http://0.0.0.0:8200"
-        }
-    cap_add:
-      - IPC_LOCK
+  vault-1-init:
+    image: alpine:3
+    container_name: vault-1-init
     volumes:
-      - ./vault-data:/vault/data
-    healthcheck:
-      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+      - ./test-env-resources/raft-data/vault-1:/vault/data
+    command: ["sh", "-c", "chown -R 100:1000 /vault/data 2>/dev/null || true"]
+    user: root
+    restart: "no"
 
-  vault-dev:
+  vault-1:
     image: hashicorp/vault:1.15
-    container_name: vault-dev
-    restart: unless-stopped
+    container_name: vault-1
+    hostname: vault-1
+    entrypoint: ["vault"]
+    command: ["server", "-config=/vault/config/vault.hcl"]
     ports:
-      - "8201:8200"
+      - "18200:8300"  # API (inventory vault-1)
+      - "18201:8201"  # Raft cluster
+    volumes:
+      - ./test-env-resources/vault-config/vault-1.hcl:/vault/config/vault.hcl
+      - ./test-env-resources/raft-data/vault-1:/vault/data
     environment:
-      VAULT_DEV_ROOT_TOKEN_ID: devroot
-      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
-      VAULT_ADDR: http://0.0.0.0:8200
+      VAULT_ADDR: "http://127.0.0.1:8300"
     cap_add:
       - IPC_LOCK
+    networks:
+      - vault-net
+    depends_on:
+      vault-1-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "vault status -address=http://127.0.0.1:8300 || [ $$? -eq 2 ]"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  vault-2-init:
+    image: alpine:3
+    container_name: vault-2-init
+    volumes:
+      - ./test-env-resources/raft-data/vault-2:/vault/data
+    command: ["sh", "-c", "chown -R 100:1000 /vault/data 2>/dev/null || true"]
+    user: root
+    restart: "no"
+
+  vault-2:
+    image: hashicorp/vault:1.15
+    container_name: vault-2
+    hostname: vault-2
+    entrypoint: ["vault"]
+    command: ["server", "-config=/vault/config/vault.hcl"]
+    ports:
+      - "18202:8300"  # API (inventory vault-2)
+      - "18203:8201"  # Raft cluster
+    volumes:
+      - ./test-env-resources/vault-config/vault-2.hcl:/vault/config/vault.hcl
+      - ./test-env-resources/raft-data/vault-2:/vault/data
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8300"
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - vault-net
+    depends_on:
+      vault-2-init:
+        condition: service_completed_successfully
+      vault-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "vault status -address=http://127.0.0.1:8300 || [ $$? -eq 2 ]"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  vault-3-init:
+    image: alpine:3
+    container_name: vault-3-init
+    volumes:
+      - ./test-env-resources/raft-data/vault-3:/vault/data
+    command: ["sh", "-c", "chown -R 100:1000 /vault/data 2>/dev/null || true"]
+    user: root
+    restart: "no"
+
+  vault-3:
+    image: hashicorp/vault:1.15
+    container_name: vault-3
+    hostname: vault-3
+    entrypoint: ["vault"]
+    command: ["server", "-config=/vault/config/vault.hcl"]
+    ports:
+      - "18204:8300"  # API (inventory vault-3)
+      - "18205:8201"  # Raft cluster
+    volumes:
+      - ./test-env-resources/vault-config/vault-3.hcl:/vault/config/vault.hcl
+      - ./test-env-resources/raft-data/vault-3:/vault/data
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8300"
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - vault-net
+    depends_on:
+      vault-3-init:
+        condition: service_completed_successfully
+      vault-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "vault status -address=http://127.0.0.1:8300 || [ $$? -eq 2 ]"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  ldap:
+    image: osixia/openldap:1.5.0
+    container_name: ldap-test
+    hostname: ldap.test.local
+    environment:
+      LDAP_ORGANISATION: "Test"
+      LDAP_DOMAIN: "test.local"
+      LDAP_BASE_DN: "dc=test,dc=local"
+      LDAP_ADMIN_PASSWORD: "admin"
+      LDAP_CONFIG_PASSWORD: "config"
+      LDAP_READONLY_USER: "false"
+      LDAP_TLS: "false"
+    ports:
+      - "389:389"
+      - "636:636"
+    networks:
+      - vault-net
+    healthcheck:
+      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost:389", "-b", "dc=test,dc=local", "-D", "cn=admin,dc=test,dc=local", "-w", "admin"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ldap-init:
+    image: alpine:3
+    container_name: ldap-init
+    volumes:
+      - ./test-env-resources/ldap/bootstrap:/ldif:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache openldap-clients
+        until ldapsearch -x -H ldap://ldap -b dc=test,dc=local -D "cn=admin,dc=test,dc=local" -w admin 2>/dev/null; do echo "Waiting for LDAP..."; sleep 2; done
+        ldapadd -x -H ldap://ldap -D "cn=admin,dc=test,dc=local" -w admin -f /ldif/01-ou-users.ldif || true
+        ldapadd -x -H ldap://ldap -D "cn=admin,dc=test,dc=local" -w admin -f /ldif/02-sa-vault.ldif || true
+        echo "LDAP init done."
+    networks:
+      - vault-net
+    depends_on:
+      ldap:
+        condition: service_healthy
+    restart: "no"
+
+networks:
+  vault-net:
+    driver: bridge

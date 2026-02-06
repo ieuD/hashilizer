@@ -17,25 +17,19 @@ A comprehensive, modular Ansible playbook for configuring HashiCorp Vault with s
 vault-initializer/
 ├── ansible.cfg                    # Ansible configuration
 ├── site.yml                       # Main playbook (all roles)
-├── docker-compose.yml             # Test environment setup
-├── setup-test-env.sh             # Test environment helper script
-├── run-playbook.sh               # Convenient playbook runner
+├── docker-compose.yml             # Test env: 3-node Vault Raft + LDAP (all mounts under test-env-resources/)
+├── run-playbook.sh                # Convenient playbook runner
+├── test-env-resources/            # Test env data and config (all volume mounts live here)
+│   ├── start-test-env.sh          # Clean start script
+│   ├── fix-permissions.sh        # Fix Raft dir permissions
+│   ├── vault-config/             # Vault HCL per node
+│   ├── ldap/                     # LDAP bootstrap LDIFs
+│   └── raft-data/                # Raft data (vault-1, vault-2, vault-3; gitignored)
 ├── group_vars/
-│   └── all.yml                   # Global variables
 ├── inventories/
-│   ├── production                # Production inventory
-│   └── test                      # Test inventory
 ├── playbooks/
-│   ├── init-only.yml            # Vault initialization only
-│   ├── audit-only.yml           # Audit configuration only
-│   └── policies-only.yml        # Policy management only
 ├── roles/
-│   ├── vault-init/              # Vault initialization role
-│   ├── vault-audit/             # Audit logging role
-│   └── vault-policies/          # Policy management role
-├── policies/                     # Policy files directory (created automatically)
-└── test-config/
-    └── vault.hcl                # Vault configuration for testing
+└── policies/
 ```
 
 ## Quick Start
@@ -43,11 +37,11 @@ vault-initializer/
 ### 1. Set up Test Environment
 
 ```bash
-# Start the test Vault environment
-./setup-test-env.sh
+# Clean start (recommended): stops orphans, starts 3-node Vault + LDAP
+./test-env-resources/start-test-env.sh
 
-# Or manually with Docker Compose
-docker-compose up -d
+# Or from repo root:
+docker compose up -d
 ```
 
 ### 2. Run Complete Configuration
@@ -310,7 +304,7 @@ ansible-playbook -i inventories/production site.yml -e vault_root_token="$VAULT_
 ### Common Issues
 
 1. **Connection Refused**: Ensure Vault is running and accessible
-2. **Permission Denied**: Check that unseal keys and root token are available
+2. **Permission Denied** (especially in UI): Use the token in `~/.vault_root_token` for **http://localhost:8200**. When pasting, ensure no extra spaces or newlines (e.g. `cat ~/.vault_root_token | tr -d '\n'` to copy). Also ensure unseal keys and root token are available.
 3. **Policy Validation Failed**: Review policy syntax in HCL format
 4. **Audit Device Already Exists**: Set `vault_audit_force_enable: true` or `vault_audit_remove_existing: true`
 
@@ -343,8 +337,7 @@ curl -s -H "X-Vault-Token: $VAULT_ROOT_TOKEN" \
 
 The included Docker Compose setup provides:
 
-- **Production-like Vault** (`localhost:8200`): File storage, requires initialization
-- **Development Vault** (`localhost:8201`): Dev mode, pre-initialized (token: `devroot`)
+- **Vault** (`localhost:8200`): File storage, requires initialization (run `./run-playbook.sh init`)
 
 ### Test Environment Commands
 
@@ -352,17 +345,17 @@ The included Docker Compose setup provides:
 # Start test environment
 ./setup-test-env.sh
 
-# Check services
-docker-compose ps
+# Check services (from repo root)
+docker compose ps
 
 # View logs
-docker-compose logs vault
+docker logs vault-1
 
 # Stop environment
-docker-compose down
+docker compose down
 
-# Clean up (remove volumes)
-docker-compose down -v
+# Clean up (Raft data remains under test-env-resources/raft-data/)
+docker compose down
 ```
 
 ## Contributing

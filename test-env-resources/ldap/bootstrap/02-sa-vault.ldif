@@ -1,0 +1,14 @@
+# Service account for Vault LDAP auth (password: SaVaultTest123)
+dn: uid=sa.vault,ou=users,dc=test,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: sa.vault
+sn: vault
+givenName: sa
+cn: sa.vault
+uidNumber: 10000
+gidNumber: 5000
+userPassword: SaVaultTest123
+loginShell: /bin/bash
+homeDirectory: /home/sa.vault

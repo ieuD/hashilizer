@@ -1,170 +1,114 @@
 ---
-# tasks file for vault-policies
+# Load root token from file if not set (for standalone policies run)
+- name: Check if root token file exists
+  stat:
+    path: "{{ vault_root_token_file }}"
+  register: root_token_file_stat
+  delegate_to: localhost
 
-- name: Ensure Vault token is available
+- name: Read root token from file
+  slurp:
+    src: "{{ vault_root_token_file }}"
+  register: root_token_content
+  delegate_to: localhost
+  when: root_token_file_stat.stat.exists | default(false)
+
+- name: Set root token from file
+  set_fact:
+    vault_root_token: "{{ root_token_content.content | b64decode | trim }}"
+  when: root_token_content is defined and root_token_content.content is defined
+
+- name: Fail when root token not available
   fail:
-    msg: "Vault root token is required for policy management"
+    msg: |
+      Root token required for policy management. Set vault_root_token or ensure {{ vault_root_token_file }} exists (run init first).
   when: vault_root_token is not defined or vault_root_token == ""
 
-- name: Create policies directory locally
-  file:
-    path: "{{ vault_policies_source_dir }}"
-    state: directory
-    mode: "0755"
-  delegate_to: localhost
-  run_once: true
-  when: vault_policies_create_default | default(true)
+# Resolve policies directory (support both relative and absolute)
+- name: Resolve policies source directory
+  set_fact:
+    _policies_dir: "{{ vault_policies_source_dir | expanduser }}"
+  when: vault_policies_source_dir is defined
 
-- name: Create default policy files
-  copy:
-    content: "{{ item.content }}"
-    dest: "{{ vault_policies_source_dir }}/{{ item.name }}{{ vault_policy_file_extension }}"
-    mode: "0644"
-  loop: "{{ vault_default_policies }}"
+# List policy files from directory (.hcl only)
+- name: Find policy files in directory
+  find:
+    path: "{{ _policies_dir }}"
+    patterns: "*.hcl"
+    recurse: false
+  register: policy_files
   delegate_to: localhost
-  run_once: true
+  when:
+    - _policies_dir is defined
+    - vault_policies_source_dir is defined
+
+# Create policies from vault_default_policies (inline)
+- name: Create or update policy from default (inline)
+  uri:
+    url: "{{ vault_addr }}/v1/sys/policies/acl/{{ item.name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    body:
+      policy: "{{ item.content }}"
+    validate_certs: "{{ not vault_skip_verify | default(true) }}"
+    status_code: [200, 204]
+  loop: "{{ vault_default_policies | default([]) }}"
   when:
     - vault_policies_create_default | default(true)
     - vault_default_policies is defined
+    - vault_default_policies | length > 0
+    - vault_root_token is defined
 
-- name: Find policy files in policies directory
-  find:
-    paths: "{{ vault_policies_source_dir }}"
-    patterns: "*{{ vault_policy_file_extension }}"
-    file_type: file
-  register: policy_files
-  delegate_to: localhost
-  when: vault_policies_source_dir is defined
+- name: Create or update policy from custom (inline)
+  uri:
+    url: "{{ vault_addr }}/v1/sys/policies/acl/{{ item.name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    body:
+      policy: "{{ item.content }}"
+    validate_certs: "{{ not vault_skip_verify | default(true) }}"
+    status_code: [200, 204]
+  loop: "{{ vault_custom_policies | default([]) }}"
+  when:
+    - vault_custom_policies is defined
+    - vault_custom_policies | length > 0
+    - vault_root_token is defined
 
-- name: Read policy files content
+# Create policies from files in policies/ directory
+- name: Read policy file content
   slurp:
     src: "{{ item.path }}"
-  register: policy_file_contents
-  loop: "{{ policy_files.files }}"
+  register: policy_file_content
   delegate_to: localhost
-  when: policy_files.files is defined
+  loop: "{{ policy_files.files | default([]) }}"
+  when:
+    - policy_files is defined
+    - policy_files.files is defined
+    - policy_files.files | length > 0
+  loop_control:
+    label: "{{ item.path | basename }}"
 
-- name: Combine all policies
-  set_fact:
-    all_policies: >-
-      {{
-        (vault_default_policies | default([])) +
-        (policy_file_contents.results | default([]) | 
-         map(attribute='content') | 
-         map('b64decode') | 
-         zip(policy_files.files | default([]) | map(attribute='path') | map('basename') | map('regex_replace', vault_policy_file_extension + '$', '')) |
-         map('zip', ['content', 'name']) | 
-         map('items2dict') | 
-         list) +
-        (vault_custom_policies | default([]))
-      }}
-
-- name: Get existing policies
+- name: Create or update policy from file
   uri:
-    url: "{{ vault_addr }}/v1/sys/policies/acl"
-    method: LIST
-    headers:
-      X-Vault-Token: "{{ vault_root_token }}"
-    status_code: 200, 404
-    validate_certs: "{{ not vault_skip_verify | default(true) }}"
-  register: existing_policies
-
-- name: Display existing policies
-  debug:
-    msg: "Existing policies: {{ existing_policies.json.data.keys | default([]) }}"
-  when: existing_policies.json is defined and existing_policies.json.data is defined
-
-- name: Validate policy syntax (dry-run)
-  uri:
-    url: "{{ vault_addr }}/v1/sys/policies/acl/{{ item.name }}"
-    method: PUT
+    url: "{{ vault_addr }}/v1/sys/policies/acl/{{ (item.item.path | basename) | regex_replace('\\.hcl$', '') }}"
+    method: POST
     headers:
       X-Vault-Token: "{{ vault_root_token }}"
     body_format: json
     body:
-      policy: "{{ item.content }}"
-    status_code: 204, 400
+      policy: "{{ item.content | b64decode }}"
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
-  loop: "{{ all_policies }}"
-  register: policy_validation
+    status_code: [200, 204]
+  loop: "{{ policy_file_content.results | default([]) }}"
   when:
-    - vault_policies_validate_syntax | default(true)
-    - all_policies is defined
-  check_mode: yes
-  ignore_errors: yes
-
-- name: Display policy validation results
-  debug:
-    msg: "Policy '{{ item.item.name }}' validation: {{ 'PASSED' if item.status == 204 else 'FAILED' }}"
-  loop: "{{ policy_validation.results | default([]) }}"
-  when: policy_validation.results is defined
-
-- name: Fail on policy validation errors
-  fail:
-    msg: "Policy validation failed for: {{ policy_validation.results | selectattr('status', 'ne', 204) | map(attribute='item.name') | list }}"
-  when:
-    - vault_policies_validate_syntax | default(true)
-    - policy_validation.results is defined
-    - policy_validation.results | selectattr('status', 'ne', 204) | list | length > 0
-
-- name: Create/Update policies
-  uri:
-    url: "{{ vault_addr }}/v1/sys/policies/acl/{{ item.name }}"
-    method: PUT
-    headers:
-      X-Vault-Token: "{{ vault_root_token }}"
-    body_format: json
-    body:
-      policy: "{{ item.content }}"
-    status_code: 204
-    validate_certs: "{{ not vault_skip_verify | default(true) }}"
-  loop: "{{ all_policies }}"
-  when:
-    - all_policies is defined
-    - (item.name not in (existing_policies.json.data.keys | default([]))) or (vault_policies_update_existing | default(false))
-  register: policy_creation_result
-
-- name: Get updated policies list
-  uri:
-    url: "{{ vault_addr }}/v1/sys/policies/acl"
-    method: LIST
-    headers:
-      X-Vault-Token: "{{ vault_root_token }}"
-    status_code: 200
-    validate_certs: "{{ not vault_skip_verify | default(true) }}"
-  register: final_policies
-
-- name: Display policy management summary
-  debug:
-    msg: |
-      Policy Management Summary:
-      - Total policies configured: {{ all_policies | length }}
-      - Policies in Vault: {{ final_policies.json.data.keys | length }}
-      - Policy names: {{ final_policies.json.data.keys | sort }}
-  when:
-    - all_policies is defined
-    - final_policies.json is defined
-
-- name: Create policy usage examples
-  copy:
-    content: |
-      # Vault Policy Usage Examples
-
-      # Assign policy to userpass user:
-      vault write auth/userpass/users/myuser policies=app-secrets
-
-      # Assign policy to AppRole:
-      vault write auth/approle/role/myrole policies=app-secrets
-
-      # Test policy with token:
-      vault token create -policy=app-secrets
-
-      # View policy content:
-      vault policy read app-secrets
-
-      # List all policies:
-      vault policy list
-    dest: "{{ vault_policies_source_dir }}/USAGE_EXAMPLES.md"
-    mode: "0644"
-  delegate_to: localhost
-  run_once: true
+    - policy_file_content is defined
+    - policy_file_content.results is defined
+    - item.skipped is not defined or not item.skipped
+    - item.content is defined
+    - vault_root_token is defined
+  loop_control:
+    label: "{{ (item.item.path | basename) | regex_replace('\\.hcl$', '') }}"

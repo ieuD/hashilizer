@@ -1,9 +1,27 @@
 ---
 # tasks file for vault-audit
 
+- name: Check if root token file exists
+  stat:
+    path: "{{ vault_root_token_file }}"
+  register: _audit_root_token_file_stat
+  delegate_to: localhost
+
+- name: Read root token from file
+  slurp:
+    src: "{{ vault_root_token_file }}"
+  register: _audit_root_token_content
+  delegate_to: localhost
+  when: _audit_root_token_file_stat.stat.exists | default(false)
+
+- name: Set root token from file
+  set_fact:
+    vault_root_token: "{{ _audit_root_token_content.content | b64decode | trim }}"
+  when: _audit_root_token_content is defined and _audit_root_token_content.content is defined
+
 - name: Ensure Vault token is available
   fail:
-    msg: "Vault root token is required for audit configuration"
+    msg: "Vault root token is required for audit configuration. Set vault_root_token or ensure {{ vault_root_token_file }} exists (run init first)."
   when: vault_root_token is not defined or vault_root_token == ""
 
 - name: Create audit log directory
@@ -13,7 +31,7 @@
     owner: "{{ vault_audit_log_owner | default('vault') }}"
     group: "{{ vault_audit_log_group | default('vault') }}"
     mode: "{{ vault_audit_log_dir_mode | default('0755') }}"
-  become: yes
+  become: "{{ (vault_audit_log_dir | default(''))[:4] != '/tmp' }}"
   when:
     - vault_audit_log_dir is defined
     - vault_audit_log_dir != "/tmp" # Skip for /tmp as it already exists
@@ -24,14 +42,19 @@
     method: GET
     headers:
       X-Vault-Token: "{{ vault_root_token }}"
-    status_code: 200
+    status_code: [200, 429]
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
   register: existing_audit_devices
 
+- name: Set existing audit device list (empty when standby/429)
+  set_fact:
+    _existing_audit_keys: "{{ (existing_audit_devices.json | default({})).keys() | list }}"
+  when: existing_audit_devices is defined
+
 - name: Display existing audit devices
   debug:
-    msg: "Existing audit devices: {{ existing_audit_devices.json.keys() | list }}"
-  when: existing_audit_devices.json is defined
+    msg: "Existing audit devices: {{ _existing_audit_keys | default([]) }}"
+  when: _existing_audit_keys is defined
 
 - name: Remove existing audit devices (if requested)
   uri:
@@ -41,11 +64,11 @@
       X-Vault-Token: "{{ vault_root_token }}"
     status_code: 204
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
-  loop: "{{ existing_audit_devices.json.keys() | list }}"
+  loop: "{{ _existing_audit_keys | default([]) }}"
   when:
     - vault_audit_remove_existing | default(false)
-    - existing_audit_devices.json is defined
-    - existing_audit_devices.json.keys() | length > 0
+    - _existing_audit_keys is defined
+    - (_existing_audit_keys | default([])) | length > 0
 
 - name: Enable audit devices
   uri:
@@ -58,13 +81,21 @@
       type: "{{ item.device_type }}"
       description: "{{ item.description | default('') }}"
       options: "{{ item.options | default({}) }}"
-    status_code: 204
+    status_code: [204, 429]
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
   loop: "{{ vault_audit_devices }}"
   when:
     - vault_audit_devices is defined
-    - (item.path not in (existing_audit_devices.json.keys() | list)) or (vault_audit_force_enable | default(false))
+    - (item.path not in (_existing_audit_keys | default([]))) or (vault_audit_force_enable | default(false))
   register: audit_enable_result
+
+- name: Note when audit enable skipped (standby node)
+  debug:
+    msg: "{{ vault_addr }} returned 429 (standby); audit is configured on the active node."
+  when:
+    - audit_enable_result is defined
+    - audit_enable_result.results is defined
+    - 429 in (audit_enable_result.results | map(attribute='status', default=0) | list)
 
 - name: Create audit log files with proper permissions
   file:
@@ -74,7 +105,7 @@
     group: "{{ vault_audit_log_group | default('vault') }}"
     mode: "{{ item.options.mode | default(vault_audit_log_file_mode) }}"
   loop: "{{ vault_audit_devices }}"
-  become: yes
+  become: "{{ (item.options.file_path | default(''))[:4] != '/tmp' }}"
   when:
     - vault_audit_devices is defined
     - item.device_type == 'file'
@@ -86,14 +117,14 @@
     method: GET
     headers:
       X-Vault-Token: "{{ vault_root_token }}"
-    status_code: 200
+    status_code: [200, 429]
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
   register: final_audit_devices
 
 - name: Display enabled audit devices
   debug:
-    msg: "Enabled audit devices: {{ final_audit_devices.json }}"
-  when: final_audit_devices.json is defined
+    msg: "Enabled audit devices: {{ (final_audit_devices.json | default({})) }}"
+  when: final_audit_devices is defined
 
 - name: Test audit logging (generate test entry)
   uri:
@@ -101,7 +132,7 @@
     method: GET
     headers:
       X-Vault-Token: "{{ vault_root_token }}"
-    status_code: 200
+    status_code: [200, 429]
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
   register: audit_test
   when: vault_audit_devices is defined and vault_audit_devices | length > 0
@@ -110,7 +141,7 @@
   debug:
     msg: |
       Audit Configuration Summary:
-      - Enabled devices: {{ final_audit_devices.json.keys() | list }}
+      - Enabled devices: {{ (final_audit_devices.json | default({})).keys() | list }}
       - Log directory: {{ vault_audit_log_dir }}
-      - Test entry generated: {{ audit_test is defined and audit_test.status == 200 }}
-  when: final_audit_devices.json is defined
+      - Test entry generated: {{ audit_test is defined and (audit_test.status | default(0)) in [200, 429] }}
+  when: final_audit_devices is defined

@@ -17,8 +17,12 @@
           Vault Initialization Complete!
 
           Vault Address: {{ vault_addr }}
-          Root Token: {{ vault_root_token }}
+          Root Token: {{ vault_root_token | default('(run again or check ' ~ vault_root_token_file ~ ')') }}
           Unseal Keys File: {{ vault_unseal_keys_file }}
           Root Token File: {{ vault_root_token_file }}
+
+          Note: {{ vault_root_token_file }} is only written when this playbook performs initialization (first run or -e vault_force_init=true). On other runs it is not overwritten. If the token fails (e.g. after recreating Vault), run with -e vault_force_init=true to re-init and update the file.
+
+          UI login: Open http://localhost:8200/ui (use localhost). Method: Token. Copy token with: cat {{ vault_root_token_file }} | tr -d '\\n'
 
           IMPORTANT: Secure these files immediately!

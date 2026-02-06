@@ -44,7 +44,7 @@
 
 - name: Save root token to file
   copy:
-    content: "{{ vault_init_result.json.root_token }}"
+    content: "{{ vault_init_result.json.root_token | trim }}"
     dest: "{{ vault_root_token_file }}"
     mode: "0600"
   when: vault_init_result.json is defined and vault_init_result.json.root_token is defined
@@ -144,6 +144,30 @@
     vault_root_token: "{{ vault_init_result.json.root_token }}"
   when: vault_init_result.json is defined and vault_init_result.json.root_token is defined
 
+- name: Validate root token from file (when we did not init this run)
+  uri:
+    url: "{{ vault_addr }}/v1/auth/token/lookup-self"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    status_code: [200, 403]
+    validate_certs: "{{ not vault_skip_verify | default(true) }}"
+  register: token_validation
+  when:
+    - vault_init_result.json is not defined or vault_init_result.json.root_token is not defined
+    - vault_root_token is defined and vault_root_token | length > 0
+
+- name: Fail when token in file is stale or invalid
+  fail:
+    msg: |
+      Token in {{ vault_root_token_file }} is invalid or stale (Vault may have been re-initialized).
+      To fix: run with -e vault_force_init=true to re-initialize and update the file (destroys existing data),
+      or manually update {{ vault_root_token_file }} with the current root token.
+  when:
+    - token_validation is defined
+    - not (token_validation.skipped | default(false))
+    - token_validation.status | default(0) != 200
+
 - name: Warning when root token not available
   debug:
     msg: |
@@ -164,7 +188,7 @@
     method: GET
     headers:
       X-Vault-Token: "{{ vault_root_token }}"
-    status_code: 200
+    status_code: [200, 429]
     validate_certs: "{{ not vault_skip_verify | default(true) }}"
   register: vault_health
   retries: 5
@@ -173,11 +197,11 @@
 
 - name: Display Vault health status
   debug:
-    msg: "Vault is ready and unsealed"
+    msg: "Vault is ready and unsealed{% if vault_health.status == 429 %} (standby){% endif %}"
   when:
     - vault_health is defined
     - vault_health is not skipped
-    - vault_health.status == 200
+    - vault_health.status in [200, 429]
 
 - name: Display completion summary
   debug:

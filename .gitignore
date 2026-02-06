@@ -1,13 +1,12 @@
-# HashiCorp Vault Data - NEVER COMMIT THESE
+# HashiCorp Vault – never commit
 vault-data/
+vault-logs/
 *.vault_keys
 *.vault_root_token
 .vault_keys
 .vault_root_token
 /vault_keys
 /vault_root_token
-
-# Sensitive Vault files
 vault.hcl
 vault.json
 unseal_keys.json
@@ -16,12 +15,16 @@ root_token.txt
 *.key
 *.crt
 
-# Ansible sensitive files
+# Ansible – sensitive and runtime
 host_vars/*/vault_*
 group_vars/*/vault_token*
 group_vars/*/vault_root*
 *.vault
 vault_pass*
+.ansible/
+*.retry
+ansible.log
+.ansible-lint
 
 # Python virtual environments
 venv/
@@ -37,14 +40,13 @@ __pycache__/
 pip-log.txt
 pip-delete-this-directory.txt
 
-# IDE and editor files
+# IDE and editor
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
-.DS_Store
-Thumbs.db
 
 # Logs and temporary files
 *.log
@@ -55,11 +57,12 @@ temp/
 *.tmp
 *.temp
 
-# Docker volumes and data
+# Docker and test env data
 docker-data/
 postgres-data/
 mysql-data/
 volumes/
+test-env-resources/raft-data/
 
 # Backup files
 *.bak
@@ -90,17 +93,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Terraform (if used)
+# Terraform
 *.tfstate
 *.tfstate.*
 .terraform/
 terraform.tfvars
 *.tfvars
 
-# Ansible retry files
-*.retry
-
-# Local configuration overrides
+# Local overrides
 local_settings.yml
 local_vars.yml
 override.yml

@@ -1,19 +1,22 @@
 ---
 # defaults file for vault-audit
+vault_root_token_file: "{{ ansible_facts['user_dir'] }}/.vault_root_token"
 
-# Audit device configuration
+# Audit log directory settings (directory we create; file_path is derived below)
+vault_audit_log_dir: "/var/log/vault"
+
+# Audit device configuration (file_path aligned with vault_audit_log_dir)
 vault_audit_devices:
   - device_type: "file"
     path: "file_audit"
     description: "File-based audit logging"
     options:
-      file_path: "/vault/logs/audit.log"
+      file_path: "{{ vault_audit_log_dir }}/audit.log"
       log_raw: false
       hmac_accessor: true
       mode: "0600"
 
-# Audit log directory settings
-vault_audit_log_dir: "/var/log/vault"
+# Audit log file/dir ownership and mode
 vault_audit_log_owner: "vault"
 vault_audit_log_group: "vault"
 vault_audit_log_dir_mode: "0755"

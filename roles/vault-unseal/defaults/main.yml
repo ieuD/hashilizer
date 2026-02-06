@@ -1,20 +1,10 @@
 ---
-# Vault connection settings
 vault_addr: "http://localhost:8200"
 vault_skip_verify: true
-
-# Unseal key settings
 vault_unseal_keys_file: "{{ ansible_facts['user_dir'] }}/.vault_keys"
-vault_unseal_keys: [] # Can be provided directly instead of from file
-
-# Unseal behavior settings
+vault_unseal_keys: []
 vault_auto_unseal: true
-vault_unseal_timeout: 30
 vault_unseal_retries: 3
 vault_unseal_delay: 5
-
-# Key threshold (number of keys needed to unseal)
 vault_key_threshold: 3
-
-# Force unseal even if already unsealed
 vault_force_unseal: false

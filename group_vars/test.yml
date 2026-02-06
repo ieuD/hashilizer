@@ -25,6 +25,17 @@ vault_audit_options:
   hmac_accessor: false # Easier debugging
   mode: "0644" # More permissive for testing
 
+# Use /tmp for audit in test (no root needed)
+vault_audit_devices:
+  - device_type: "file"
+    path: "file_audit"
+    description: "Test environment audit logging"
+    options:
+      file_path: "/tmp/vault-audit-test.log"
+      log_raw: true
+      hmac_accessor: false
+      mode: "0644"
+
 # Test policy settings
 vault_policies_dir: "policies"
 vault_policies_create_default: true

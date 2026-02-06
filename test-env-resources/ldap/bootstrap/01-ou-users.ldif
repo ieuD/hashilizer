@@ -1,0 +1,4 @@
+# Organizational unit for users (bootstrap)
+dn: ou=users,dc=test,dc=local
+objectClass: organizationalUnit
+ou: users

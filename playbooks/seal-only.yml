@@ -1,0 +1,24 @@
+---
+- name: Seal Vault
+  hosts: vault_servers
+  gather_facts: true
+  become: false
+
+  pre_tasks:
+    # Force each host to seal its own Vault (not a single shared vault_addr)
+    - name: Resolve seal target to current host
+      set_fact:
+        _vault_port: "{{ vault_addr | regex_replace('^.*:(\\d+)/?$', '\\1') }}"
+    - name: Point vault_addr at this host for sealing
+      set_fact:
+        vault_addr: "http://127.0.0.1:{{ _vault_port if _vault_port != vault_addr else '8200' }}"
+
+  roles:
+    - vault-seal
+
+  post_tasks:
+    - name: Display seal summary
+      debug:
+        msg: |
+          Vault seal complete. All target nodes have been sealed.
+          To unseal again: ./run-playbook.sh unseal

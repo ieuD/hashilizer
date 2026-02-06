@@ -37,7 +37,7 @@
 
 - name: Parse unseal keys from file
   set_fact:
-    vault_unseal_keys: "{{ (unseal_keys_content.content | b64decode | from_json) }}"
+    vault_unseal_keys: "{{ (unseal_keys_content.content | b64decode).split('\n') | select('match', '^[A-Za-z0-9+/=]+$') | list }}"
   when:
     - unseal_keys_content is defined
     - unseal_keys_content.content is defined
@@ -46,15 +46,8 @@
   debug:
     msg: |
       WARNING: No unseal keys available.
-
       Checked file: {{ vault_unseal_keys_file }}
-      Keys provided: {{ vault_unseal_keys | length }}
-
-      To unseal Vault, you need to:
-      1. Provide keys via vault_unseal_keys variable, or
-      2. Ensure unseal keys file exists with proper JSON format
-
-      Expected JSON format: ["key1", "key2", "key3", ...]
+      To unseal, provide keys via vault_unseal_keys or ensure the file exists (one key per line; lines starting with # are ignored).
   when:
     - vault_unseal_keys | length == 0
     - not (unseal_keys_file_stat.stat.exists | default(false))
@@ -99,16 +92,9 @@
   debug:
     msg: |
       Vault unseal completed!
-
       Status: {{ 'Unsealed' if not final_seal_status.json.sealed else 'Still Sealed' }}
       Progress: {{ final_seal_status.json.progress | default(0) }}/{{ final_seal_status.json.t | default(vault_key_threshold) }}
-      Vault Version: {{ final_seal_status.json.version | default('unknown') }}
-
-      {% if not final_seal_status.json.sealed %}
-      ✅ Vault is now ready for use!
-      {% else %}
-      ❌ Vault is still sealed. Check unseal keys and try again.
-      {% endif %}
+      {% if not final_seal_status.json.sealed %}✅ Vault is now ready for use!{% else %}❌ Vault is still sealed.{% endif %}
   when: final_seal_status is defined
 
 - name: Fail if Vault is still sealed after unseal attempt

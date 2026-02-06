@@ -1,0 +1,4 @@
+---
+vault_addr: "http://localhost:8200"
+vault_skip_verify: true
+vault_root_token_file: "{{ ansible_facts['user_dir'] }}/.vault_root_token"

@@ -1,32 +1,19 @@
-# Test Environment Inventory
-# =========================
+# Test Environment Inventory - 3-node Raft cluster (docker compose ports 18200-18202)
 
-[vault_dev]
-# Dev vault - pre-initialized with root token "myroot"
-vault-dev ansible_host=localhost ansible_connection=local vault_port=8200
-
-[vault_prod_test]  
-# Production-like vault for testing initialization
-vault-prod ansible_host=localhost ansible_connection=local vault_port=8202
-
-[vault_servers:children]
-# Group that matches the playbook expectations
-vault_dev
-vault_prod_test
+[vault_servers]
+vault-1 ansible_host=localhost ansible_connection=local vault_addr=http://localhost:18200
+vault-2 ansible_host=localhost ansible_connection=local vault_addr=http://localhost:18202
+vault-3 ansible_host=localhost ansible_connection=local vault_addr=http://localhost:18204
 
 [vault_servers:vars]
-# Variables for vault server operations
-vault_addr=http://localhost:8202
 vault_skip_verify=true
 vault_key_shares=3
 vault_key_threshold=2
 
 [test:children]
-vault_dev
-vault_prod_test
+vault_servers
 
 [test:vars]
-# Common test environment variables
 ansible_python_interpreter={{ ansible_playbook_python }}
 vault_skip_verify=true
 vault_environment=test
