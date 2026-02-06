@@ -13,5 +13,5 @@ vault_auto_unseal: true
 vault_force_init: false
 
 # File paths
-vault_unseal_keys_file: "{{ ansible_user_dir }}/.vault_keys"
-vault_root_token_file: "{{ ansible_user_dir }}/.vault_root_token"
+vault_unseal_keys_file: "{{ ansible_facts['user_dir'] | default(ansible_env.HOME) }}/.vault_keys"
+vault_root_token_file: "{{ ansible_facts['user_dir'] | default(ansible_env.HOME) }}/.vault_root_token"
